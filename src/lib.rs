@@ -825,8 +825,8 @@ mod tests {
     #[test]
     fn test_sort_zero_sized_type() {
         // Should not panic.
-        [(); 10].sort();
-        [(); 100].sort();
+        super::sort(&mut [(); 10]);
+        super::sort(&mut [(); 100]);
     }
 
     #[test]

@@ -19,8 +19,6 @@
 //! # Examples
 //!
 //! ```
-//! extern crate pdqsort;
-//!
 //! let mut v = [-5i32, 4, 1, -3, 2];
 //!
 //! pdqsort::sort(&mut v);
@@ -754,8 +752,6 @@ fn quicksort<T, F>(v: &mut [T], mut is_less: F)
 /// # Examples
 ///
 /// ```
-/// extern crate pdqsort;
-///
 /// let mut v = [-5, 4, 1, -3, 2];
 /// pdqsort::sort(&mut v);
 /// assert!(v == [-5, -3, 1, 2, 4]);
@@ -775,8 +771,6 @@ pub fn sort<T>(v: &mut [T])
 /// # Examples
 ///
 /// ```
-/// extern crate pdqsort;
-///
 /// let mut v = [5, 4, 1, 3, 2];
 /// pdqsort::sort_by(&mut v, |a, b| a.cmp(b));
 /// assert!(v == [1, 2, 3, 4, 5]);
@@ -800,8 +794,6 @@ pub fn sort_by<T, F>(v: &mut [T], mut compare: F)
 /// # Examples
 ///
 /// ```
-/// extern crate pdqsort;
-///
 /// let mut v = [-5i32, 4, 1, -3, 2];
 /// pdqsort::sort_by_key(&mut v, |k| k.abs());
 /// assert!(v == [1, 2, -3, 4, -5]);

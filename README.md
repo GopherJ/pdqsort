@@ -27,7 +27,7 @@ v.sort_unstable();
 assert!(v == [-5, -3, 1, 2, 4]);
 ```
 
-See [The Unstable Book](https://doc.rust-lang.org/nightly/unstable-book/sort-unstable.html)
+See [The Unstable Book](https://manishearth.github.io/rust-internals-docs/unstable-book/sort-unstable.html)
 for more information.
 
 #### Properties

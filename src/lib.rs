@@ -37,6 +37,142 @@ use core::cmp::{self, Ordering};
 use core::mem;
 use core::ptr;
 
+trait PtrExt<T>: Copy {
+    unsafe fn add(self, i: usize) -> Self;
+    unsafe fn sub(self, i: usize) -> Self;
+
+    fn wrapping_add(self, i: usize) -> Self;
+    fn wrapping_sub(self, i: usize) -> Self;
+
+    unsafe fn read(self) -> T;
+    unsafe fn read_volatile(self) -> T;
+    unsafe fn read_unaligned(self) -> T;
+
+    unsafe fn copy_to(self, dest: *mut T, count: usize);
+    unsafe fn copy_to_nonoverlapping(self, dest: *mut T, count: usize);
+}
+
+impl<T> PtrExt<T> for *const T {
+    unsafe fn add(self, i: usize) -> Self {
+        self.offset(i as isize)
+    }
+
+    unsafe fn sub(self, i: usize) -> Self {
+        self.offset(-(i as isize))
+    }
+
+    fn wrapping_add(self, i: usize) -> Self {
+        self.wrapping_offset(i as isize)
+    }
+
+    fn wrapping_sub(self, i: usize) -> Self {
+        self.wrapping_offset(-(i as isize))
+    }
+
+    unsafe fn read(self) -> T {
+        ptr::read(self)
+    }
+
+    unsafe fn read_volatile(self) -> T {
+        ptr::read_volatile(self)
+    }
+
+    unsafe fn read_unaligned(self) -> T {
+        ptr::read_unaligned(self)
+    }
+
+    unsafe fn copy_to(self, dest: *mut T, count: usize) {
+        ptr::copy(self, dest, count)
+    }
+
+    unsafe fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) {
+        ptr::copy_nonoverlapping(self, dest, count)
+    }
+}
+
+impl<T> PtrExt<T> for *mut T {
+    unsafe fn add(self, i: usize) -> Self {
+        self.offset(i as isize)
+    }
+
+    unsafe fn sub(self, i: usize) -> Self {
+        self.offset(-(i as isize))
+    }
+
+    fn wrapping_add(self, i: usize) -> Self {
+        self.wrapping_offset(i as isize)
+    }
+
+    fn wrapping_sub(self, i: usize) -> Self {
+        self.wrapping_offset(-(i as isize))
+    }
+
+    unsafe fn read(self) -> T {
+        ptr::read(self)
+    }
+
+    unsafe fn read_volatile(self) -> T {
+        ptr::read_volatile(self)
+    }
+
+    unsafe fn read_unaligned(self) -> T {
+        ptr::read_unaligned(self)
+    }
+
+    unsafe fn copy_to(self, dest: *mut T, count: usize) {
+        ptr::copy(self, dest, count)
+    }
+
+    unsafe fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) {
+        ptr::copy_nonoverlapping(self, dest, count)
+    }
+}
+
+trait DropInPlaceExt<T: ?Sized>: Copy {
+    unsafe fn drop_in_place(self);
+}
+
+trait PtrMutExt<T>: Copy {
+    unsafe fn write(self, val: T);
+    unsafe fn write_bytes(self, val: u8, count: usize);
+    unsafe fn write_volatile(self, val: T);
+    unsafe fn write_unaligned(self, val: T);
+    unsafe fn replace(self, val: T) -> T;
+    unsafe fn swap(self, with: *mut T);
+}
+
+impl<T: ?Sized> DropInPlaceExt<T> for *mut T {
+    unsafe fn drop_in_place(self) {
+        ptr::drop_in_place(self)
+    }
+}
+
+impl<T> PtrMutExt<T> for *mut T {
+    unsafe fn write(self, val: T) {
+        ptr::write(self, val)
+    }
+
+    unsafe fn write_bytes(self, val: u8, count: usize) {
+        ptr::write_bytes(self, val, count)
+    }
+
+    unsafe fn write_volatile(self, val: T) {
+        ptr::write_volatile(self, val)
+    }
+
+    unsafe fn write_unaligned(self, val: T) {
+        ptr::write_unaligned(self, val)
+    }
+
+    unsafe fn replace(self, val: T) -> T {
+        ptr::replace(self, val)
+    }
+
+    unsafe fn swap(self, with: *mut T) {
+        ptr::swap(self, with)
+    }
+}
+
 /// When dropped, takes the value out of `Option` and writes it into `dest`.
 ///
 /// This allows us to safely read the pivot into a stack-allocated variable for efficiency, and
@@ -74,7 +210,7 @@ struct CopyOnDrop<T> {
 
 impl<T> Drop for CopyOnDrop<T> {
     fn drop(&mut self) {
-        unsafe { ptr::copy_nonoverlapping(self.src, self.dest, 1); }
+        unsafe { self.src.copy_to_nonoverlapping(self.dest, 1) }
     }
 }
 
@@ -83,27 +219,28 @@ fn shift_head<T, F>(v: &mut [T], is_less: &mut F)
     where F: FnMut(&T, &T) -> bool
 {
     let len = v.len();
+    let v = v.as_mut_ptr();
     unsafe {
         // If the first two elements are out-of-order...
-        if len >= 2 && is_less(v.get_unchecked(1), v.get_unchecked(0)) {
+        if len >= 2 && is_less(&*v.add(1), &*v) {
             // Read the first element into a stack-allocated variable. If a following comparison
             // operation panics, `hole` will get dropped and automatically write the element back
             // into the slice.
-            let mut tmp = NoDrop { value: Some(ptr::read(v.get_unchecked(0))) };
+            let mut tmp = NoDrop { value: Some(v.read()) };
             let mut hole = CopyOnDrop {
                 src: tmp.value.as_mut().unwrap(),
-                dest: v.get_unchecked_mut(1),
+                dest: v.add(1),
             };
-            ptr::copy_nonoverlapping(v.get_unchecked(1), v.get_unchecked_mut(0), 1);
+            v.add(1).copy_to_nonoverlapping(v, 1);
 
             for i in 2..len {
-                if !is_less(v.get_unchecked(i), tmp.value.as_ref().unwrap()) {
+                if !is_less(&*v.add(i), tmp.value.as_ref().unwrap()) {
                     break;
                 }
 
                 // Move `i`-th element one place to the left, thus shifting the hole to the right.
-                ptr::copy_nonoverlapping(v.get_unchecked(i), v.get_unchecked_mut(i - 1), 1);
-                hole.dest = v.get_unchecked_mut(i);
+                v.add(i).copy_to_nonoverlapping(v.add(i - 1), 1);
+                hole.dest = v.add(i);
             }
             // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
         }
@@ -115,27 +252,28 @@ fn shift_tail<T, F>(v: &mut [T], is_less: &mut F)
     where F: FnMut(&T, &T) -> bool
 {
     let len = v.len();
+    let v = v.as_mut_ptr();
     unsafe {
         // If the last two elements are out-of-order...
-        if len >= 2 && is_less(v.get_unchecked(len - 1), v.get_unchecked(len - 2)) {
+        if len >= 2 && is_less(&*v.add(len - 1), &*v.add(len - 2)) {
             // Read the last element into a stack-allocated variable. If a following comparison
             // operation panics, `hole` will get dropped and automatically write the element back
             // into the slice.
-            let mut tmp = NoDrop { value: Some(ptr::read(v.get_unchecked(len - 1))) };
+            let mut tmp = NoDrop { value: Some(v.add(len - 1).read()) };
             let mut hole = CopyOnDrop {
                 src: tmp.value.as_mut().unwrap(),
-                dest: v.get_unchecked_mut(len - 2),
+                dest: v.add(len - 2),
             };
-            ptr::copy_nonoverlapping(v.get_unchecked(len - 2), v.get_unchecked_mut(len - 1), 1);
+            v.add(len - 2).copy_to_nonoverlapping(v.add(len - 1), 1);
 
             for i in (0..len-2).rev() {
-                if !is_less(&tmp.value.as_ref().unwrap(), v.get_unchecked(i)) {
+                if !is_less(&tmp.value.as_ref().unwrap(), &*v.add(i)) {
                     break;
                 }
 
                 // Move `i`-th element one place to the right, thus shifting the hole to the left.
-                ptr::copy_nonoverlapping(v.get_unchecked(i), v.get_unchecked_mut(i + 1), 1);
-                hole.dest = v.get_unchecked_mut(i);
+                v.add(i).copy_to_nonoverlapping(v.add(i + 1), 1);
+                hole.dest = v.add(i);
             }
             // `hole` gets dropped and thus copies `tmp` into the remaining hole in `v`.
         }
@@ -155,12 +293,13 @@ fn partial_insertion_sort<T, F>(v: &mut [T], is_less: &mut F) -> bool
     const SHORTEST_SHIFTING: usize = 50;
 
     let len = v.len();
+    let p = v.as_mut_ptr();
     let mut i = 1;
 
     for _ in 0..MAX_STEPS {
         unsafe {
             // Find the next pair of adjacent out-of-order elements.
-            while i < len && !is_less(v.get_unchecked(i), v.get_unchecked(i - 1)) {
+            while i < len && !is_less(&*p.add(i), &*p.add(i - 1)) {
                 i += 1;
             }
         }
@@ -176,7 +315,7 @@ fn partial_insertion_sort<T, F>(v: &mut [T], is_less: &mut F) -> bool
         }
 
         // Swap the found pair of elements. This puts them in correct order.
-        v.swap(i - 1, i);
+        unsafe { p.add(i - 1).swap(p.add(i)) }
 
         // Shift the smaller element to the left.
         shift_tail(&mut v[..i], is_less);
@@ -275,7 +414,7 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
     let mut offsets_l: [u8; BLOCK] = unsafe { mem::uninitialized() };
 
     // The current block on the right side (from `r.offset(-block_r)` to `r`).
-    let mut r = unsafe { l.offset(v.len() as isize) };
+    let mut r = unsafe { l.add(v.len()) };
     let mut block_r = BLOCK;
     let mut start_r = ptr::null_mut();
     let mut end_r = ptr::null_mut();
@@ -323,8 +462,8 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
                 unsafe {
                     // Branchless comparison.
                     *end_l = i as u8;
-                    end_l = end_l.offset(!is_less(&*elem, pivot) as isize);
-                    elem = elem.offset(1);
+                    end_l = end_l.add(!is_less(&*elem, pivot) as usize);
+                    elem = elem.add(1);
                 }
             }
         }
@@ -338,9 +477,9 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
             for i in 0..block_r {
                 unsafe {
                     // Branchless comparison.
-                    elem = elem.offset(-1);
+                    elem = elem.sub(1);
                     *end_r = i as u8;
-                    end_r = end_r.offset(is_less(&*elem, pivot) as isize);
+                    end_r = end_r.add(is_less(&*elem, pivot) as usize);
                 }
             }
         }
@@ -349,38 +488,38 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
         let count = cmp::min(width(start_l, end_l), width(start_r, end_r));
 
         if count > 0 {
-            macro_rules! left { () => { l.offset(*start_l as isize) } }
-            macro_rules! right { () => { r.offset(-(*start_r as isize) - 1) } }
+            macro_rules! left { () => { l.add(*start_l as usize) } }
+            macro_rules! right { () => { r.sub(*start_r as usize + 1) } }
 
             // Instead of swapping one pair at the time, it is more efficient to perform a cyclic
             // permutation. This is not strictly equivalent to swapping, but produces a similar
             // result using fewer memory operations.
             unsafe {
-                let tmp = ptr::read(left!());
-                ptr::copy_nonoverlapping(right!(), left!(), 1);
+                let tmp = left!().read();
+                right!().copy_to_nonoverlapping(left!(), 1);
 
                 for _ in 1..count {
-                    start_l = start_l.offset(1);
-                    ptr::copy_nonoverlapping(left!(), right!(), 1);
-                    start_r = start_r.offset(1);
-                    ptr::copy_nonoverlapping(right!(), left!(), 1);
+                    start_l = start_l.add(1);
+                    left!().copy_to_nonoverlapping(right!(), 1);
+                    start_r = start_r.add(1);
+                    right!().copy_to_nonoverlapping(left!(), 1);
                 }
 
                 ptr::copy_nonoverlapping(&tmp, right!(), 1);
                 mem::forget(tmp);
-                start_l = start_l.offset(1);
-                start_r = start_r.offset(1);
+                start_l = start_l.add(1);
+                start_r = start_r.add(1);
             }
         }
 
         if start_l == end_l {
             // All out-of-order elements in the left block were moved. Move to the next block.
-            l = unsafe { l.offset(block_l as isize) };
+            l = unsafe { l.add(block_l) };
         }
 
         if start_r == end_r {
             // All out-of-order elements in the right block were moved. Move to the previous block.
-            r = unsafe { r.offset(-(block_r as isize)) };
+            r = unsafe { r.sub(block_r) };
         }
 
         if is_done {
@@ -398,9 +537,9 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
         debug_assert_eq!(width(l, r), block_l);
         while start_l < end_l {
             unsafe {
-                end_l = end_l.offset(-1);
-                ptr::swap(l.offset(*end_l as isize), r.offset(-1));
-                r = r.offset(-1);
+                end_l = end_l.sub(1);
+                l.add(*end_l as usize).swap(r.sub(1));
+                r = r.sub(1);
             }
         }
         width(v.as_mut_ptr(), r)
@@ -410,9 +549,9 @@ fn partition_in_blocks<T, F>(v: &mut [T], pivot: &T, is_less: &mut F) -> usize
         debug_assert_eq!(width(l, r), block_r);
         while start_r < end_r {
             unsafe {
-                end_r = end_r.offset(-1);
-                ptr::swap(l, r.offset(-(*end_r as isize) - 1));
-                l = l.offset(1);
+                end_r = end_r.sub(1);
+                l.swap(r.sub(*end_r as usize + 1));
+                l = l.add(1);
             }
         }
         width(v.as_mut_ptr(), l)
@@ -449,14 +588,15 @@ fn partition<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> (usize, bool)
         // Find the first pair of out-of-order elements.
         let mut l = 0;
         let mut r = v.len();
+        let ptr = v.as_mut_ptr();
         unsafe {
             // Find the first element greater then or equal to the pivot.
-            while l < r && is_less(v.get_unchecked(l), pivot) {
+            while l < r && is_less(&*ptr.add(l), pivot) {
                 l += 1;
             }
 
             // Find the last element smaller that the pivot.
-            while l < r && !is_less(v.get_unchecked(r - 1), pivot) {
+            while l < r && !is_less(&*ptr.add(r - 1), pivot) {
                 r -= 1;
             }
         }
@@ -497,15 +637,16 @@ fn partition_equal<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> usize
     // Now partition the slice.
     let mut l = 0;
     let mut r = v.len();
+    let ptr = v.as_mut_ptr();
     loop {
         unsafe {
             // Find the first element greater that the pivot.
-            while l < r && !is_less(pivot, v.get_unchecked(l)) {
+            while l < r && !is_less(pivot, &*ptr.add(l)) {
                 l += 1;
             }
 
             // Find the last element equal to the pivot.
-            while l < r && is_less(pivot, v.get_unchecked(r - 1)) {
+            while l < r && is_less(pivot, &*ptr.add(r - 1)) {
                 r -= 1;
             }
 
@@ -516,7 +657,7 @@ fn partition_equal<T, F>(v: &mut [T], pivot: usize, is_less: &mut F) -> usize
 
             // Swap the found pair of out-of-order elements.
             r -= 1;
-            ptr::swap(v.get_unchecked_mut(l), v.get_unchecked_mut(r));
+            ptr.add(l).swap(ptr.add(r));
             l += 1;
         }
     }

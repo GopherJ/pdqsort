@@ -5,29 +5,27 @@
 [![Cargo](https://img.shields.io/crates/v/pdqsort.svg)](https://crates.io/crates/pdqsort)
 [![Documentation](https://docs.rs/pdqsort/badge.svg)](https://docs.rs/pdqsort)
 
-This sort is significantly faster than the standard sort in Rust. In particular, it sorts
+This sort is significantly faster than `slice::sort` in Rust. In particular, it sorts
 random arrays of integers approximately 45% faster. The key drawback is that it is an unstable
 sort (i.e. may reorder equal elements). However, in most cases stability doesn't matter anyway.
 
 The algorithm is based on pdqsort by Orson Peters, published at: https://github.com/orlp/pdqsort
 
-#### Now in nightly Rust
+#### Now in stable Rust
 
-If you're using nightly Rust, you don't need this crate. The sort is as of recently
+If you're using Rust 1.20 or newer, you don't need this crate. The sort is now
 [implemented](https://github.com/rust-lang/rust/pull/40601) in libcore.
 
 Use it like this:
 
 ```rust
-#![feature(sort_unstable)]
-
 let mut v = [-5, 4, 1, -3, 2];
 
 v.sort_unstable();
 assert!(v == [-5, -3, 1, 2, 4]);
 ```
 
-See [The Unstable Book](https://manishearth.github.io/rust-internals-docs/unstable-book/sort-unstable.html)
+See [documentation](https://doc.rust-lang.org/std/primitive.slice.html#method.sort_unstable)
 for more information.
 
 #### Properties
